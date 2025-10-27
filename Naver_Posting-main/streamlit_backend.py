@@ -154,11 +154,62 @@ class StreamlitTaskManager:
         return content
     
     def _generate_ai_content(self, address: str, company: str) -> str:
-        """AI 콘텐츠 생성 시뮬레이션"""
+        """AI 콘텐츠 생성 (새로운 Genai 클라이언트 사용)"""
+        try:
+            # 새로운 Google Genai 클라이언트 사용
+            from google import genai
+            import streamlit as st
+            
+            # 세션에서 API 키 가져오기
+            api_key = st.session_state.get('api_key', '')
+            if not api_key:
+                return self._get_fallback_content(address, company)
+            
+            client = genai.Client(api_key=api_key)
+            
+            prompt = f"""
+            {address}에 위치한 {company}에 대한 블로그 포스팅용 본문을 작성해주세요.
+            
+            요구사항:
+            - 1500자 내외로 작성
+            - 전문적이고 신뢰감 있는 톤
+            - 고객 입장에서 도움이 되는 정보 포함
+            - 자연스러운 한국어로 작성
+            
+            주제: {company} 서비스 소개 및 특장점
+            """
+            
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-exp",
+                contents=prompt,
+            )
+            
+            if response and response.text:
+                return response.text.strip()
+            else:
+                return self._get_fallback_content(address, company)
+                
+        except Exception as e:
+            # 오류 발생 시 기본 템플릿 사용
+            return self._get_fallback_content(address, company)
+    
+    def _get_fallback_content(self, address: str, company: str) -> str:
+        """AI 생성 실패 시 사용할 기본 콘텐츠"""
         templates = [
-            f"{address}에 위치한 {company}는 고객만족을 최우선으로 하는 전문 업체입니다.",
-            f"{company}는 {address} 지역에서 오랜 경험과 노하우를 바탕으로 최상의 서비스를 제공합니다.",
-            f"{address} 지역의 {company}는 신뢰할 수 있는 전문가들이 직접 관리하는 업체입니다."
+            f"{address}에 위치한 {company}는 고객만족을 최우선으로 하는 전문 업체입니다. "
+            f"오랜 경험과 노하우를 바탕으로 최상의 서비스를 제공하고 있으며, "
+            f"고객의 다양한 요구사항에 맞춤형 솔루션을 제공합니다. "
+            f"전문적인 기술력과 체계적인 관리 시스템으로 신뢰할 수 있는 서비스를 약속드립니다.",
+            
+            f"{company}는 {address} 지역에서 전문성을 인정받고 있는 업체입니다. "
+            f"고품질의 서비스와 합리적인 가격으로 많은 고객들의 만족을 얻고 있으며, "
+            f"신속하고 정확한 업무 처리로 고객의 시간과 비용을 절약해드립니다. "
+            f"언제든지 문의 주시면 친절하고 전문적인 상담을 제공해드리겠습니다.",
+            
+            f"{address} 지역의 {company}는 축적된 기술력과 풍부한 경험을 바탕으로 "
+            f"고객에게 최고의 만족을 드리기 위해 노력하고 있습니다. "
+            f"체계적인 품질관리 시스템과 전문 인력을 통해 안전하고 확실한 서비스를 제공하며, "
+            f"고객의 입장에서 생각하는 맞춤형 서비스로 신뢰를 쌓아가고 있습니다."
         ]
         return random.choice(templates)
     

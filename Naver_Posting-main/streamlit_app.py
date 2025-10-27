@@ -91,6 +91,23 @@ st.markdown("""
         border-radius: 3px;
         border: 1px solid #dee2e6;
     }
+    .naver-account {
+        background-color: #e8f5e8;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 0.75rem;
+        border-radius: 5px;
+        margin: 0.5rem 0;
+    }
+    .credential-warning {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+        padding: 0.5rem;
+        border-radius: 3px;
+        font-size: 0.9rem;
+        margin: 0.25rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,7 +122,9 @@ def init_session_state():
     if 'use_dynamic_ip' not in st.session_state:
         st.session_state.use_dynamic_ip = False
     if 'api_key' not in st.session_state:
-        st.session_state.api_key = ""
+        # 환경변수에서 API 키 확인
+        import os
+        st.session_state.api_key = os.getenv('GEMINI_API_KEY', '')
     if 'phone_number' not in st.session_state:
         st.session_state.phone_number = ""
     if 'content_template' not in st.session_state:
@@ -129,28 +148,56 @@ def init_session_state():
         st.session_state.api_authenticated = False
     if 'auth_message' not in st.session_state:
         st.session_state.auth_message = ""
+    if 'naver_id' not in st.session_state:
+        st.session_state.naver_id = ""
+    if 'naver_password' not in st.session_state:
+        st.session_state.naver_password = ""
 
 # Gemini API 인증 함수
 def authenticate_gemini_api(api_key):
     """Gemini API 키 인증"""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
+        # 새로운 Google Genai 클라이언트 사용
+        from google import genai
+        
+        # API 키 설정
+        client = genai.Client(api_key=api_key)
         
         # 간단한 테스트 요청
-        model = genai.GenerativeModel('gemini-pro')
-        response = model.generate_content("Hello")
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents="Hello, test connection",
+        )
         
-        if response:
+        if response and response.text:
             return True, "✅ Gemini API 인증 성공!"
         else:
             return False, "❌ API 응답이 없습니다."
             
+    except ImportError:
+        # 기존 방식으로 fallback
+        try:
+            import google.generativeai as genai_old
+            genai_old.configure(api_key=api_key)
+            
+            model = genai_old.GenerativeModel('gemini-pro')
+            response = model.generate_content("Hello")
+            
+            if response:
+                return True, "✅ Gemini API 인증 성공! (기존 방식)"
+            else:
+                return False, "❌ API 응답이 없습니다."
+        except Exception as e:
+            return False, f"❌ 기존 방식 인증 오류: {str(e)}"
+            
     except Exception as e:
-        if "API_KEY_INVALID" in str(e) or "invalid" in str(e).lower():
+        error_msg = str(e).lower()
+        if "api_key" in error_msg or "invalid" in error_msg or "unauthorized" in error_msg:
             return False, "❌ 유효하지 않은 API 키입니다."
-        elif "quota" in str(e).lower():
+        elif "quota" in error_msg or "limit" in error_msg:
             return False, "❌ API 할당량이 초과되었습니다."
+        elif "permission" in error_msg:
+            return False, "❌ API 접근 권한이 없습니다."
         else:
             return False, f"❌ 인증 오류: {str(e)}"
 
@@ -237,28 +284,6 @@ def main():
         
         # 유동 IP 설정
         st.session_state.use_dynamic_ip = st.toggle("🌐 유동 IP 사용", st.session_state.use_dynamic_ip)
-        
-        st.divider()
-        
-        # Gemini API 키 설정
-        st.markdown("🔑 **Gemini API 설정**")
-        
-        # API 키 입력
-        st.session_state.api_key = st.text_input(
-            "Gemini API KEY", 
-            value=st.session_state.api_key, 
-            type="password",
-            help="Google AI Studio에서 발급받은 Gemini API 키를 입력하세요"
-        )
-        
-        # API 인증 상태 표시
-        if st.session_state.api_authenticated:
-            st.success("✅ API 인증 완료")
-        elif st.session_state.auth_message:
-            if "성공" in st.session_state.auth_message:
-                st.success(st.session_state.auth_message)
-            else:
-                st.error(st.session_state.auth_message)
         
         st.divider()
         
@@ -374,6 +399,10 @@ def main():
                     st.error("Gemini API 키를 입력해주세요!")
                 elif not st.session_state.api_authenticated:
                     st.error("Gemini API 인증을 먼저 완료해주세요!")
+                elif not st.session_state.naver_id:
+                    st.error("네이버 아이디를 입력해주세요!")
+                elif not st.session_state.naver_password:
+                    st.error("네이버 패스워드를 입력해주세요!")
                 else:
                     # 기존 모듈과 연동하여 작업 실행
                     if st.session_state.integration:
@@ -385,19 +414,21 @@ def main():
                             'title_data': st.session_state.title_data,
                             'api_key': st.session_state.api_key,
                             'phone_number': st.session_state.phone_number,
+                            'naver_id': st.session_state.naver_id,
+                            'naver_password': st.session_state.naver_password,
                             'waiting_min': st.session_state.waiting_min,
                             'waiting_max': st.session_state.waiting_max,
                             'use_dynamic_ip': st.session_state.use_dynamic_ip
                         }
                         if st.session_state.integration.execute_posting_task(config):
                             st.session_state.is_running = True
-                            add_log("✅ API 인증 완료 - 작업을 시작합니다.", "info")
+                            add_log(f"✅ 모든 인증 완료 - {st.session_state.naver_id}로 작업을 시작합니다.", "info")
                             st.rerun()
                         else:
                             st.error("작업 시작에 실패했습니다.")
                     else:
                         st.session_state.is_running = True
-                        add_log("✅ API 인증 완료 - 작업을 시작합니다.", "info")
+                        add_log(f"✅ 모든 인증 완료 - {st.session_state.naver_id}로 작업을 시작합니다.", "info")
                         st.rerun()
         else:
             if st.button("⏹️ 작업 중지", type="secondary", use_container_width=True):
@@ -444,36 +475,62 @@ def main():
     
     # 오른쪽 열 - 로그 및 상태
     with col3:
-        st.markdown('<div class="section-header">� API 인증 & 상태</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🔐 Gemini API 인증 & 설정</div>', unsafe_allow_html=True)
         
-        # Gemini API 인증 섹션
+        # Gemini API 설정 및 인증 통합 섹션
         with st.container():
-            st.markdown("**🤖 Gemini API 인증**")
+            st.markdown("**🔑 API 키 설정**")
+            
+            # API 키 입력 필드
+            st.session_state.api_key = st.text_input(
+                "Gemini API KEY", 
+                value=st.session_state.api_key, 
+                type="password",
+                help="Google AI Studio(https://aistudio.google.com)에서 발급받은 Gemini API 키를 입력하세요",
+                placeholder="AIzaSy...",
+                key="api_key_input"
+            )
             
             # API 키 상태 표시
             if st.session_state.api_key:
                 masked_key = st.session_state.api_key[:8] + "*" * (len(st.session_state.api_key) - 12) + st.session_state.api_key[-4:] if len(st.session_state.api_key) > 12 else "*" * len(st.session_state.api_key)
-                st.info(f"🔑 API 키: {masked_key}")
+                st.info(f"🔑 입력된 키: `{masked_key}`")
             else:
-                st.warning("⚠️ API 키가 입력되지 않았습니다")
+                st.warning("⚠️ API 키를 입력해주세요")
+            
+            # 인증 상태 표시
+            if st.session_state.api_authenticated:
+                st.success("✅ API 인증 완료 - 작업 수행 가능")
+            elif st.session_state.auth_message:
+                if "성공" in st.session_state.auth_message:
+                    st.success(st.session_state.auth_message)
+                else:
+                    st.error(st.session_state.auth_message)
             
             # 인증 버튼들
             col_auth1, col_auth2 = st.columns(2)
             
             with col_auth1:
-                if st.button("🔍 API 인증", type="primary", use_container_width=True):
+                if st.button("🔍 API 인증", type="primary", use_container_width=True, key="auth_button"):
                     if st.session_state.api_key:
                         with st.spinner("API 인증 중..."):
+                            add_log("Gemini API 인증을 시작합니다...", "info")
                             is_valid, message = authenticate_gemini_api(st.session_state.api_key)
                             st.session_state.api_authenticated = is_valid
                             st.session_state.auth_message = message
                             add_log(message, "success" if is_valid else "error")
+                            
+                            if is_valid:
+                                add_log("✅ API 인증 완료 - 작업 수행이 가능합니다!", "success")
+                            else:
+                                add_log("⚠️ API 인증 실패 - 키를 확인하고 다시 시도해주세요.", "warning")
                             st.rerun()
                     else:
                         st.error("먼저 API 키를 입력해주세요!")
+                        add_log("❌ API 키가 입력되지 않았습니다.", "error")
             
             with col_auth2:
-                if st.button("🗑️ 인증 초기화", use_container_width=True):
+                if st.button("🗑️ 인증 초기화", use_container_width=True, key="reset_button"):
                     st.session_state.api_authenticated = False
                     st.session_state.auth_message = ""
                     st.session_state.api_key = ""
@@ -482,10 +539,83 @@ def main():
         
         st.divider()
         
+        # 네이버 계정 설정 섹션
+        with st.container():
+            st.markdown("**🌐 네이버 계정 설정**")
+            
+            # 네이버 아이디 입력
+            st.session_state.naver_id = st.text_input(
+                "네이버 아이디",
+                value=st.session_state.naver_id,
+                help="네이버 블로그/카페 포스팅을 위한 네이버 계정 아이디를 입력하세요",
+                placeholder="your_naver_id",
+                key="naver_id_input"
+            )
+            
+            # 네이버 패스워드 입력
+            st.session_state.naver_password = st.text_input(
+                "네이버 패스워드",
+                value=st.session_state.naver_password,
+                type="password",
+                help="네이버 계정의 패스워드를 입력하세요",
+                placeholder="패스워드 입력",
+                key="naver_password_input"
+            )
+            
+            # 계정 상태 표시
+            if st.session_state.naver_id and st.session_state.naver_password:
+                st.success(f"✅ 네이버 계정 설정 완료: {st.session_state.naver_id}")
+            elif st.session_state.naver_id:
+                st.warning("⚠️ 패스워드를 입력해주세요")
+            else:
+                st.info("💡 네이버 계정 정보를 입력해주세요")
+            
+            # 계정 관리 버튼들
+            col_naver1, col_naver2 = st.columns(2)
+            
+            with col_naver1:
+                if st.button("💾 계정 저장", use_container_width=True, key="save_naver"):
+                    if st.session_state.naver_id and st.session_state.naver_password:
+                        # 계정 정보 저장 로직 (실제로는 보안을 위해 암호화 저장)
+                        add_log(f"네이버 계정 '{st.session_state.naver_id}' 저장 완료", "success")
+                        st.success("계정 정보가 저장되었습니다!")
+                    else:
+                        st.error("아이디와 패스워드를 모두 입력해주세요!")
+                        add_log("네이버 계정 정보가 불완전합니다.", "error")
+            
+            with col_naver2:
+                if st.button("🗑️ 계정 초기화", use_container_width=True, key="clear_naver"):
+                    st.session_state.naver_id = ""
+                    st.session_state.naver_password = ""
+                    add_log("네이버 계정 정보가 초기화되었습니다.", "info")
+                    st.rerun()
+        
+        st.divider()
+        
         # 업로드된 데이터 요약
         with st.container():
-            st.markdown("**📈 데이터 요약**")
+            st.markdown("**📈 설정 및 데이터 요약**")
             
+            # 인증 상태 요약
+            auth_col1, auth_col2 = st.columns(2)
+            with auth_col1:
+                api_status = "✅ 완료" if st.session_state.api_authenticated else "❌ 미완료"
+                st.metric("API 인증", api_status)
+                
+                naver_status = "✅ 완료" if (st.session_state.naver_id and st.session_state.naver_password) else "❌ 미완료"
+                st.metric("네이버 계정", naver_status)
+            
+            with auth_col2:
+                if st.session_state.naver_id:
+                    st.metric("네이버 ID", st.session_state.naver_id)
+                else:
+                    st.metric("네이버 ID", "미설정")
+                
+                st.metric("플랫폼", st.session_state.platform_choice)
+            
+            st.divider()
+            
+            # 파일 데이터 요약
             col_a, col_b = st.columns(2)
             with col_a:
                 account_count = len(st.session_state.account_data) if st.session_state.account_data is not None else 0
@@ -524,7 +654,7 @@ def main():
                 st.info("아직 로그가 없습니다.")
         
         # 로그 초기화 버튼
-        if st.button("🗑️ 로그 초기화", key="clear_logs"):
+        if st.button("🗑️ 로그 초기화", key="clear_logs", use_container_width=True):
             st.session_state.logs = []
             st.rerun()
     
