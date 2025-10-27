@@ -368,62 +368,354 @@ def main():
             help="SMS 인증이 필요한 경우 사용됩니다"
         )
     
-    # 메인 영역을 3개 열로 분할
-    col1, col2, col3 = st.columns([1, 1.5, 1])
+    # 메인 영역을 2개 열로 분할
+    col1, col2 = st.columns([2, 1])
     
-    # 왼쪽 열 - 파일 업로드
+    # 왼쪽 열 - Gemini AI 콘텐츠 생성 + 데이터 업로드 + 자동화 실행
     with col1:
-        st.markdown('<div class="section-header">📁 데이터 업로드</div>', unsafe_allow_html=True)
-        
-        # 계정 파일 업로드
-        st.markdown("**계정 파일 업로드**")
-        account_file = st.file_uploader(
-            "계정 CSV 파일을 업로드하세요",
-            type=['csv'],
-            key="account_upload",
-            help="계정명, 비밀번호, 게시판, 장소 정보가 포함된 CSV 파일"
-        )
-        if account_file:
-            df = process_csv_file(account_file, "account")
-            if df is not None:
-                st.dataframe(df.head(), use_container_width=True)
-        
-        st.divider()
-        
-        # 키워드 파일 업로드
-        st.markdown("**키워드 파일 업로드**")
-        keyword_file = st.file_uploader(
-            "키워드 CSV 파일을 업로드하세요",
-            type=['csv'],
-            key="keyword_upload",
-            help="주소, 업체, 파일경로, 해시태그 정보가 포함된 CSV 파일"
-        )
-        if keyword_file:
-            df = process_csv_file(keyword_file, "keyword")
-            if df is not None:
-                st.dataframe(df.head(), use_container_width=True)
-        
-        st.divider()
-        
-        # 제목 파일 업로드
-        st.markdown("**제목 파일 업로드**")
-        title_file = st.file_uploader(
-            "제목 CSV 파일을 업로드하세요",
-            type=['csv'],
-            key="title_upload",
-            help="제목 템플릿이 포함된 CSV 파일"
-        )
-        if title_file:
-            df = process_csv_file(title_file, "title")
-            if df is not None:
-                st.dataframe(df.head(), use_container_width=True)
-    
-    # 중간 열 - 콘텐츠 입력 및 실행
-    with col2:
+        # 1. Gemini AI 콘텐츠 생성
         st.markdown('<div class="section-header">🤖 Gemini AI 콘텐츠 생성</div>', unsafe_allow_html=True)
         
         # 프롬프트 입력 안내
         with st.expander("📋 프롬프트 작성 가이드", expanded=False):
+            st.markdown("""
+            **🎯 효과적인 프롬프트 작성 팁:**
+            
+            **1. 구체적인 주제 명시**
+            - "부동산 투자 가이드 작성해줘"
+            - "카페 창업 노하우에 대해 알려줘"
+            
+            **2. 타겟 독자 설정**
+            - "초보 투자자를 위한..."
+            - "20-30대 직장인 대상으로..."
+            
+            **3. 포함할 내용 명시**
+            - "장점과 단점을 포함해서"
+            - "실제 사례와 함께"
+            - "단계별 가이드로"
+            
+            **4. 플레이스홀더 활용**
+            - `%주소%`, `%업체%`: 키워드 파일의 데이터로 자동 치환
+            - `%썸네일%`, `%영상%`: 미디어 콘텐츠 자동 삽입
+            
+            **예시 프롬프트:**
+            ```
+            %업체%에서 제공하는 서비스에 대한 상세한 리뷰를 작성해주세요.
+            %주소% 지역 고객들에게 도움이 될 만한 실용적인 정보를 포함하고,
+            서비스 이용 절차와 장점을 친근한 톤으로 설명해주세요.
+            ```
+            """)
+        
+        # Gemini 프롬프트 입력
+        st.markdown("**✍️ 프롬프트 입력**")
+        st.session_state.gemini_prompt = st.text_area(
+            "Gemini AI에게 어떤 콘텐츠를 생성해달라고 요청하시겠습니까?",
+            value=st.session_state.gemini_prompt,
+            height=150,
+            placeholder="예: '부동산 투자 초보자를 위한 가이드를 작성해주세요. 시장 분석 방법, 투자 전 체크리스트, 주의사항을 포함해서 친근하고 이해하기 쉽게 설명해주세요.'",
+            help="구체적이고 상세한 프롬프트를 입력할수록 더 좋은 결과를 얻을 수 있습니다."
+        )
+        
+        # 콘텐츠 생성 버튼
+        col_gen1, col_gen2 = st.columns([3, 1])
+        
+        with col_gen1:
+            if st.button("🚀 Gemini로 콘텐츠 생성", type="primary", use_container_width=True, disabled=st.session_state.is_generating):
+                if not st.session_state.gemini_prompt.strip():
+                    st.error("프롬프트를 입력해주세요!")
+                elif not st.session_state.api_key:
+                    st.error("먼저 Gemini API 키를 입력해주세요!")
+                elif not st.session_state.api_authenticated:
+                    st.error("먼저 Gemini API 인증을 완료해주세요!")
+                else:
+                    st.session_state.is_generating = True
+                    add_log("Gemini AI 콘텐츠 생성을 시작합니다...", "info")
+                    st.rerun()
+        
+        with col_gen2:
+            if st.button("🗑️ 초기화", use_container_width=True):
+                st.session_state.gemini_prompt = ""
+                st.session_state.generated_content = ""
+                add_log("프롬프트와 생성된 콘텐츠가 초기화되었습니다.", "info")
+                st.rerun()
+        
+        # 콘텐츠 생성 중 표시
+        if st.session_state.is_generating:
+            with st.spinner("🤖 Gemini AI가 콘텐츠를 생성하고 있습니다..."):
+                success, content = generate_content_with_gemini(
+                    st.session_state.gemini_prompt, 
+                    st.session_state.api_key
+                )
+                
+                if success:
+                    st.session_state.generated_content = content
+                    st.session_state.content_template = content  # 기존 템플릿 변수에도 저장
+                    add_log("✅ 콘텐츠 생성 완료!", "success")
+                    st.success("🎉 콘텐츠가 성공적으로 생성되었습니다!")
+                else:
+                    add_log(f"❌ 콘텐츠 생성 실패: {content}", "error")
+                    st.error(f"콘텐츠 생성 실패: {content}")
+                
+                st.session_state.is_generating = False
+                st.rerun()
+        
+        # 생성된 콘텐츠 표시 및 편집
+        if st.session_state.generated_content:
+            st.markdown("**📝 생성된 콘텐츠 (편집 가능)**")
+            
+            # 콘텐츠 편집 가능한 텍스트 영역
+            st.session_state.content_template = st.text_area(
+                "생성된 콘텐츠를 검토하고 필요시 수정하세요:",
+                value=st.session_state.generated_content,
+                height=300,
+                help="생성된 콘텐츠를 자유롭게 편집할 수 있습니다. 플레이스홀더(%주소%, %업체% 등)도 추가할 수 있습니다."
+            )
+            
+            # 콘텐츠 정보 표시
+            content_length = len(st.session_state.content_template)
+            st.info(f"📊 콘텐츠 길이: {content_length:,}자 | 예상 읽기 시간: {content_length // 500 + 1}분")
+        else:
+            st.info("💡 위에서 프롬프트를 입력하고 '콘텐츠 생성' 버튼을 클릭하세요!")
+        
+        st.divider()
+        
+        # 2. 데이터 업로드
+        st.markdown('<div class="section-header">📁 데이터 업로드</div>', unsafe_allow_html=True)
+        
+        # 파일 업로드를 2열로 배치
+        upload_col1, upload_col2 = st.columns(2)
+        
+        with upload_col1:
+            # 계정 파일 업로드
+            st.markdown("**계정 파일 업로드**")
+            account_file = st.file_uploader(
+                "계정 CSV 파일을 업로드하세요",
+                type=['csv'],
+                key="account_upload",
+                help="계정명, 비밀번호, 게시판, 장소 정보가 포함된 CSV 파일"
+            )
+            if account_file:
+                df = process_csv_file(account_file, "account")
+                if df is not None:
+                    st.dataframe(df.head(3), use_container_width=True)
+            
+            # 키워드 파일 업로드
+            st.markdown("**키워드 파일 업로드**")
+            keyword_file = st.file_uploader(
+                "키워드 CSV 파일을 업로드하세요",
+                type=['csv'],
+                key="keyword_upload",
+                help="주소, 업체, 파일경로, 해시태그 정보가 포함된 CSV 파일"
+            )
+            if keyword_file:
+                df = process_csv_file(keyword_file, "keyword")
+                if df is not None:
+                    st.dataframe(df.head(3), use_container_width=True)
+        
+        with upload_col2:
+            # 제목 파일 업로드
+            st.markdown("**제목 파일 업로드**")
+            title_file = st.file_uploader(
+                "제목 CSV 파일을 업로드하세요",
+                type=['csv'],
+                key="title_upload",
+                help="제목 템플릿이 포함된 CSV 파일"
+            )
+            if title_file:
+                df = process_csv_file(title_file, "title")
+                if df is not None:
+                    st.dataframe(df.head(3), use_container_width=True)
+            
+            # 파일 업로드 상태 표시
+            st.markdown("**📊 업로드 상태**")
+            upload_status = [
+                ("계정 파일", st.session_state.account_data is not None),
+                ("키워드 파일", st.session_state.keyword_data is not None),
+                ("제목 파일", st.session_state.title_data is not None),
+            ]
+            
+            for file_name, status in upload_status:
+                icon = "✅" if status else "❌"
+                color = "green" if status else "red"
+                st.markdown(f"{icon} **{file_name}**: <span style='color: {color}'>{'완료' if status else '미완료'}</span>", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # 3. 자동화 실행
+        st.markdown('<div class="section-header">🚀 자동화 실행</div>', unsafe_allow_html=True)
+        
+        # 실행 전 체크리스트
+        with st.expander("✅ 실행 전 체크리스트", expanded=False):
+            checklist_items = [
+                ("Gemini API 인증", st.session_state.api_authenticated),
+                ("네이버 로그인 정보", bool(st.session_state.naver_id and st.session_state.naver_password)),
+                ("계정 파일 업로드", st.session_state.account_data is not None),
+                ("키워드 파일 업로드", st.session_state.keyword_data is not None),
+                ("콘텐츠 생성/입력", bool(st.session_state.content_template.strip())),
+            ]
+            
+            all_ready = True
+            for item, status in checklist_items:
+                icon = "✅" if status else "❌"
+                color = "green" if status else "red"
+                st.markdown(f"{icon} **{item}**: <span style='color: {color}'>{'준비완료' if status else '미완료'}</span>", unsafe_allow_html=True)
+                if not status:
+                    all_ready = False
+            
+            if all_ready:
+                st.success("🎉 모든 준비가 완료되었습니다!")
+            else:
+                st.warning("⚠️ 위의 미완료 항목들을 먼저 완성해주세요.")
+        
+        # 작업 실행 버튼
+        if not st.session_state.is_running:
+            if st.button("🚀 AI 포스팅 작업 시작", type="primary", use_container_width=True):
+                # 필수 조건 검사
+                if st.session_state.account_data is None:
+                    st.error("계정 파일을 먼저 업로드해주세요!")
+                elif st.session_state.keyword_data is None:
+                    st.error("키워드 파일을 먼저 업로드해주세요!")
+                elif not st.session_state.content_template.strip():
+                    st.error("콘텐츠를 생성하거나 입력해주세요!")
+                elif not st.session_state.api_key:
+                    st.error("Gemini API 키를 입력해주세요!")
+                elif not st.session_state.api_authenticated:
+                    st.error("Gemini API 인증을 먼저 완료해주세요!")
+                elif not st.session_state.naver_id:
+                    st.error("네이버 아이디를 입력해주세요!")
+                elif not st.session_state.naver_password:
+                    st.error("네이버 패스워드를 입력해주세요!")
+                else:
+                    # 기존 모듈과 연동하여 작업 실행
+                    if st.session_state.integration:
+                        config = {
+                            'platform': st.session_state.platform_choice,
+                            'account_data': st.session_state.account_data,
+                            'keyword_data': st.session_state.keyword_data,
+                            'content_template': st.session_state.content_template,
+                            'title_data': st.session_state.title_data,
+                            'api_key': st.session_state.api_key,
+                            'phone_number': st.session_state.phone_number,
+                            'naver_id': st.session_state.naver_id,
+                            'naver_password': st.session_state.naver_password,
+                            'waiting_min': st.session_state.waiting_min,
+                            'waiting_max': st.session_state.waiting_max,
+                            'use_dynamic_ip': st.session_state.use_dynamic_ip
+                        }
+                        if st.session_state.integration.execute_posting_task(config):
+                            st.session_state.is_running = True
+                            add_log(f"✅ 모든 인증 완료 - {st.session_state.naver_id}로 작업을 시작합니다.", "info")
+                            st.rerun()
+                        else:
+                            st.error("작업 시작에 실패했습니다.")
+                    else:
+                        st.session_state.is_running = True
+                        add_log(f"✅ 모든 인증 완료 - {st.session_state.naver_id}로 작업을 시작합니다.", "info")
+                        st.rerun()
+        else:
+            if st.button("⏹️ 작업 중지", type="secondary", use_container_width=True):
+                if st.session_state.integration:
+                    st.session_state.integration.stop_task()
+                st.session_state.is_running = False
+                add_log("작업이 중지되었습니다.", "warning")
+                st.rerun()
+        
+        # 수동 콘텐츠 입력 옵션 (고급 사용자용)
+        with st.expander("🔧 수동 콘텐츠 입력 (고급 사용자)", expanded=False):
+            st.markdown("**Gemini AI 대신 직접 콘텐츠를 입력하고 싶다면:**")
+            
+            with st.expander("📋 폼 형식 안내", expanded=False):
+                st.markdown("""
+                **[폼 형식 지정 안내글]**
+                
+                `[본문]`을 기준으로 서론, 본문, 결론으로 나뉩니다.
+                
+                본문은 AI로 작성한 1500자 내외의 글이며, 키워드 파일의 이미지 중 랜덤으로 5개가 들어갑니다.
+                
+                **키워드 치환:**
+                - `%주소%` → 주소 열의 데이터
+                - `%업체%` → 업체 열의 데이터
+                - `%썸네일%` → 썸네일 사진
+                - `%영상%` → 썸네일 기반 영상
+                
+                **예시:**
+                ```
+                %주소%이고, %업체%입니다.
+                %썸네일%
+                [본문]
+                %영상%
+                감사합니다.
+                ```
+                """)
+            
+            manual_content = st.text_area(
+                "수동 콘텐츠 템플릿",
+                value="",
+                height=150,
+                placeholder="예:\n안녕하세요. %업체%입니다.\n%썸네일%\n[본문]\n%영상%\n감사합니다.",
+                help="플레이스홀더를 사용하여 동적 콘텐츠를 생성하세요"
+            )
+            
+            if st.button("📝 수동 콘텐츠 적용", use_container_width=True):
+                if manual_content.strip():
+                    st.session_state.content_template = manual_content
+                    st.session_state.generated_content = manual_content
+                    add_log("수동으로 입력한 콘텐츠가 적용되었습니다.", "info")
+                    st.success("✅ 수동 콘텐츠가 적용되었습니다!")
+                    st.rerun()
+                else:
+                    st.error("콘텐츠를 입력해주세요!")
+        
+        # 진행 상태 표시
+        if st.session_state.is_running:
+            with st.container():
+                st.info("🔄 작업이 진행 중입니다...")
+                
+                # 실제 작업 상태 조회
+                if st.session_state.integration:
+                    status = st.session_state.integration.get_task_status()
+                    progress = status.get('progress', 0)
+                    current_task = status.get('current_task', '작업 중...')
+                    
+                    progress_bar = st.progress(progress / 100)
+                    status_text = st.text(f"{current_task} ({progress}%)")
+                    
+                    # 작업 완료 확인
+                    if not status.get('is_running', True) and progress >= 100:
+                        st.session_state.is_running = False
+                        add_log("작업이 완료되었습니다.", "success")
+                        st.success("✅ 작업이 완료되었습니다!")
+                        st.rerun()
+                else:
+                    # 기본 진행률 표시
+                    if "start_time" not in st.session_state:
+                        st.session_state.start_time = time.time()
+                    
+                    elapsed_time = time.time() - st.session_state.start_time
+                    estimated_progress = min(int((elapsed_time / 300) * 100), 95)  # 5분 기준 예상 진행률
+                    
+                    st.progress(estimated_progress / 100)
+                    st.text(f"진행 중... ({estimated_progress}%)")
+                    
+                    # 자동 갱신을 위해 짧은 시간 후 rerun
+                    if elapsed_time < 300:  # 5분 미만일 때만
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        # 5분 후 자동 완료 처리
+                        st.session_state.is_running = False
+                        add_log("작업이 완료되었습니다.", "success")
+                        st.success("✅ 작업이 완료되었습니다!")
+                        if "start_time" in st.session_state:
+                            del st.session_state.start_time
+                        st.rerun()
+    
+    # 오른쪽 열 - 인증 & 설정
+    with col2:
+        st.markdown('<div class="section-header">🔐 Gemini API 인증 & 설정</div>', unsafe_allow_html=True)
+        
+        # Gemini API 설정 및 인증 통합 섹션
+        with st.container():
             st.markdown("""
             **🎯 효과적인 프롬프트 작성 팁:**
             
